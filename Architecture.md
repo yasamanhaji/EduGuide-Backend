@@ -1,10 +1,10 @@
- # Volunteer Task Management System Architecture
+ # EduGuide System Architecture
 
 ## Overview
 
-The Volunteer Task Management System is designed to coordinate volunteer activities during crisis situations. In emergency events, volunteers often participate in activities such as debris removal, food distribution, and assisting vulnerable individuals. Without proper coordination, some locations may become overcrowded with volunteers while others receive little or no assistance.
+The EduGuide system is designed to facilitate educational counseling by connecting students with academic advisors based on their educational needs. The platform enables students to receive personalized guidance while allowing advisors to effectively manage and support their assigned students.
 
-The system provides a centralized platform that enables coordinators to create and manage volunteer tasks while allowing volunteers to participate in available activities based on their geographical location.
+The system provides a centralized platform where administrators can assign academic advisors to students. Once assigned, students and advisors can communicate through a real-time online chat, enabling continuous guidance, discussion of academic progress, and timely support throughout the counseling process.
 
 From an architectural perspective, the project demonstrates the application of Clean Architecture together with CQRS, MediatR, the State Pattern, Optimistic Concurrency Control, and real-time communication using SignalR.
 
@@ -30,96 +30,27 @@ The architecture was designed to satisfy both functional and non-functional requ
 
 - **Concurrency Safety:** The system detects conflicting updates using optimistic concurrency control, preventing data inconsistency caused by simultaneous operations.
 
----
-
-# System Roles
-
-The system defines two primary roles.
-
-## Coordinator
-
-Responsible for:
-
-- Creating volunteer tasks
-- Managing task lifecycle
-- Monitoring volunteer participation
-- Coordinating activities
-
-## Volunteer
-
-Responsible for:
-
-- Browsing available tasks
-- Registering for volunteer activities
-- Participating in assigned tasks
-- Receiving task notifications
-
----
-
-# Domain Model
-
-The application consists of the following core entities.
-
-| Entity | Responsibility |
-|---------|----------------|
-| User | Represents both Coordinators and Volunteers |
-| VolunteerTask | Represents volunteer activities |
-| UserTask | Maps volunteers to their assigned tasks |
-| Province | Province information |
-| City | City information |
-| Region | Region information |
-| Neighborhood | Smallest geographical unit |
-| NotificationLog | Stores notification history |
-
----
-
-# Geographical Hierarchy
-
-Volunteer tasks are associated with a geographical hierarchy.
-
-```text
-Province
-    └── City
-            └── Region
-                    └── Neighborhood
-```
-
-This hierarchy allows filtering volunteer tasks by:
-
-- Province
-- City
-- Region
-- Neighborhood
-
----
-
-# Task Lifecycle
-
-The lifecycle of each volunteer task is implemented using the State Pattern.
-
-![Task State Diagram](StateDiagram.png)
-
-Each state encapsulates its own behavior and defines only the transitions that are allowed.
-
-This design prevents invalid state transitions while keeping lifecycle logic isolated from the main entity.
-
----
-
 # Solution Structure
 
 The project follows Clean Architecture.
 
 ```text
-VolunteerTaskManagement.API
-VolunteerTaskManagement.Application
-VolunteerTaskManagement.Domain
-VolunteerTaskManagement.Infrastructure
+Base
+├── Base.Api
+├── Base.Application
+├── Base.Application.Contracts
+├── Base.Domain
+├── Base.Infrastructure
+└── Base.Utilities
 
-Base.Api
-Base.Application
-Base.Application.Contracts
-Base.Domain
-Base.Infrastructure
+Gateway
+└── EduGuide.Gateway
+
+Modules
+└── EduGuide
+    ├── EduGuide.Application
+    ├── EduGuide.Domain
+    └── EduGuide.Infrastructure
 ```
 
 ---
@@ -289,18 +220,6 @@ Database schema changes are managed using EF Core Migrations.
 
 ---
 
-# Concurrency Control
-
-The application prevents race conditions using Entity Framework Core Optimistic Concurrency Control.
-
-Entities that require concurrency protection use EF Core concurrency tokens.
-
-When multiple users attempt to update the same entity simultaneously, EF Core detects the conflict and throws a DbUpdateConcurrencyException.
-
-Concurrency exceptions are handled centrally by the global ErrorHandlerMiddleware.
-
----
-
 # Authentication & Authorization
 
 Authentication is implemented using JWT.
@@ -311,38 +230,121 @@ Authorization is implemented using Role-Based Access Control (RBAC).
 
 The system currently defines two roles:
 
-- Coordinator
-- Volunteer
+- Counselor
+- Student
+- Admin
 
 Protected endpoints use ASP.NET Core Authorize attributes.
 
 ---
 
-# Notification Architecture
+# Real-Time Chat Architecture
 
-The application supports both real-time and persistent notifications.
+The application provides a real-time private messaging system using SignalR.
 
-SignalR delivers notifications immediately to connected users.
+Unlike traditional HTTP-based messaging, SignalR enables bidirectional communication between the server and connected clients, allowing messages to be delivered instantly without requiring page refreshes.
 
-NotificationLog stores every notification in SQL Server, allowing users to review notifications even after reconnecting.
+Messages are persisted in the database, ensuring that conversations remain available even when users are offline.
 
 ```text
-Task Event
-      │
-      ▼
-NotificationLog
-      │
-      ├────────► SQL Server
-      │
-      ▼
+User Sends Message
+        │
+        ▼
 SignalR Hub
-      │
-      ▼
-Connected Clients
+        │
+        ▼
+JWT Authentication
+        │
+        ▼
+MessageCreateCommand
+        │
+        ▼
+Database (Message Storage)
+        │
+        ▼
+Check Receiver Connection
+        │
+   ┌────┴─────┐
+   │          │
+Online     Offline
+   │          │
+   ▼          ▼
+Deliver     Stored
+Message     for Later
 ```
 
 ---
 
+## Connection Management
+
+The SignalR Hub maintains active user connections using in-memory concurrent dictionaries.
+
+The hub is responsible for:
+
+- Tracking connected users.
+- Maintaining online/offline status.
+- Managing active private conversations.
+- Delivering messages to connected users.
+
+When a user connects:
+
+- The JWT token is validated.
+- The user's connection is registered.
+- Contacts are notified that the user is online.
+- The client receives the list of currently online contacts.
+
+When a user disconnects:
+
+- The connection is removed.
+- Active chat information is cleared.
+- Contacts are notified that the user has gone offline.
+
+---
+
+## Message Delivery
+
+When a private message is sent:
+
+1. The sender is authenticated using the JWT token.
+2. The message is persisted through the Application layer using CQRS.
+3. The hub checks whether the recipient is currently connected.
+4. If connected, the message is delivered immediately.
+5. Otherwise, the message remains stored in the database and can be retrieved later.
+
+---
+
+## Read Receipts
+
+The system supports message read receipts.
+
+When the recipient has an active conversation with the sender:
+
+- Messages are automatically marked as seen.
+- The sender is notified immediately through SignalR.
+
+This mechanism ensures real-time synchronization of message status between both participants.
+
+---
+
+## File Sharing
+
+The chat system supports file attachments.
+
+Uploaded files are stored in MinIO object storage, while only the file reference is stored in the database.
+
+When a file message is delivered, the application generates a temporary download URL through the MinIO service before sending it to the client.
+
+---
+
+## Online Presence
+
+The hub continuously tracks user presence.
+
+Whenever a user connects or disconnects, all related contacts are notified immediately through SignalR.
+
+This enables the client application to display real-time online/offline status.
+
+---
 # File Storage
 
 Binary files are stored using MinIO object storage.
@@ -367,19 +369,6 @@ Responsibilities include:
 - Handling validation errors
 - Handling concurrency exceptions
 - Returning consistent API responses
-
----
-
-# Testing Strategy
-
-Unit tests validate the most critical business rules.
-
-Current test coverage includes:
-
-- Task state transitions
-- Prevention of invalid state changes
-- Optimistic concurrency behavior
-- Race condition scenarios
 
 ---
 
@@ -423,30 +412,6 @@ This approach provides several advantages:
 - Easier testing by depending on abstractions rather than concrete implementations.
 - Consistent persistence behavior across the application.
 
-## State Pattern
-
-The lifecycle of a volunteer task is implemented using the State Pattern.
-
-Instead of relying on large conditional (`if`/`switch`) statements to determine which operations are allowed in each task state, every state is represented by a dedicated class that encapsulates its own behavior.
-
-Each state is responsible for:
-
-- Defining the operations that are allowed.
-- Determining the next valid state.
-- Preventing invalid state transitions.
-
-For example:
-
-- A task in the **Registered** state can transition to **In Progress** or **Cancelled**.
-- A task in the **Confirmed** state cannot transition to any other state.
-
-This design offers several advantages:
-
-- Eliminates complex conditional logic.
-- Improves readability.
-- Makes the task lifecycle easier to maintain.
-- Allows new states to be added with minimal changes to existing code.
-- Enforces business rules directly within the domain model.
 
 ## Optimistic Concurrency
 
@@ -491,20 +456,24 @@ This architecture provides several advantages:
 - Improves long-term extensibility.
 - Allows domain-specific projects to focus only on business requirements.
 
-## SignalR + NotificationLog
+## SignalR Real-Time Communication
 
-The notification subsystem combines real-time communication with persistent storage.
+SignalR was selected to provide real-time communication capabilities within the application.
 
-SignalR is responsible for delivering notifications immediately to connected users, providing an interactive user experience.
+The SignalR Hub is responsible for managing user connections, tracking online presence, delivering private messages, synchronizing message status, and supporting file sharing.
 
-However, users may be offline when notifications are generated. To avoid losing important events, every notification is also stored in the `NotificationLog` entity.
+Unlike traditional request-response communication over HTTP, SignalR enables persistent connections between clients and the server, allowing events to be pushed immediately to connected users.
 
-This hybrid approach provides:
+Messages are first persisted through the CQRS pipeline and then delivered to online recipients. If a recipient is offline, the message remains stored and can be retrieved when the conversation is reopened.
 
-- Instant notifications for connected users.
-- Reliable notification history.
-- Ability to review missed notifications after reconnecting.
-- Better user experience without sacrificing reliability.
+This architecture provides several benefits:
+
+- Low-latency message delivery.
+- Persistent message history.
+- Real-time online/offline presence tracking.
+- Read receipt synchronization.
+- Efficient communication without continuous client polling.
+- Integration with MinIO for file attachments.
 
 ## JWT + RBAC
 
