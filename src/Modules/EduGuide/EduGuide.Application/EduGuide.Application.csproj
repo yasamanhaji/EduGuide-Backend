@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!--<Nullable>enable</Nullable>-->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" Version="12.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Common\Base.Utilities\Base.Utilities.csproj" />
+    <ProjectReference Include="..\..\..\Common\Base\Base.Application\Base.Application.csproj" />
+    <ProjectReference Include="..\EduGuide.Domain\EduGuide.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="CQRS\MediaFiles\Command\" />
+    <Folder Include="CQRS\Rates\Query\" />
+  </ItemGroup>
+
+</Project>

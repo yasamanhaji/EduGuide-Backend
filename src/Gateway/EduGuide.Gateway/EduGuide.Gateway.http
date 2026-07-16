@@ -1,0 +1,6 @@
+@EduGuide.Gateway_HostAddress = http://localhost:5200
+
+GET {{EduGuide.Gateway_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
